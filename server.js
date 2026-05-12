@@ -20,9 +20,13 @@ const app = express();
 
 // Security Middleware
 app.use(helmet());
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*'
-}));
+
+// Strict CORS Configuration
+const corsOptions = {
+  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 
 // Data sanitization against NoSQL query injection
 app.use((req, res, next) => {
@@ -43,7 +47,7 @@ app.use('/api/', limiter);
 // Strict Rate Limiting for Login
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 login requests per window
+  max: 10, // Limit each IP to 10 login requests per window (Safety net)
   message: { success: false, message: 'Too many login attempts, please try again after 15 minutes.' },
   standardHeaders: true,
   legacyHeaders: false,
