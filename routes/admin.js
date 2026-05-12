@@ -2,6 +2,8 @@ import express from 'express';
 import Admin from '../models/Admin.js';
 import Series from '../models/Series.js';
 import Episode from '../models/Episode.js';
+import Analytics from '../models/Analytics.js';
+import Visitor from '../models/Visitor.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { protectAdmin } from '../middleware/auth.js';
@@ -28,7 +30,7 @@ router.post('/login', async (req, res, next) => {
     }
 
     // Generate JWT
-    const token = jwt.sign({ id: adminUser._id, username: adminUser.username }, process.env.JWT_SECRET || 'secret', { expiresIn: '1d' });
+    const token = jwt.sign({ id: adminUser._id, username: adminUser.username }, process.env.JWT_SECRET, { expiresIn: '1d' });
     
     res.json({ success: true, token });
   } catch (error) {
@@ -44,20 +46,22 @@ router.get('/dashboard', protectAdmin, async (req, res, next) => {
     const totalSeries = await Series.countDocuments();
     const totalEpisodes = await Episode.countDocuments();
     
-    // Calculate total views across all series
+    // Calculate total views across all series from Database
     const seriesAggregation = await Series.aggregate([
       { $group: { _id: null, totalViews: { $sum: '$views' } } }
     ]);
     const totalViews = seriesAggregation.length > 0 ? seriesAggregation[0].totalViews : 0;
 
-    // Get today's active users from Analytics model
+    // Accurate Unique Visitors for Today
     const today = new Date().toISOString().split('T')[0];
-    const todayAnalytics = await import('../models/Analytics.js').then(m => m.default.findOne({ date: today }));
-    const dailyUsers = todayAnalytics ? todayAnalytics.activeUsers : 0;
-    
-    // Active users right now is hard to perfectly determine without WebSockets, 
-    // but we can estimate based on today's users / 24 for a simple display
-    const activeUsers = Math.max(1, Math.floor(dailyUsers / 10));
+    const dailyUsers = await Visitor.countDocuments({ date: today });
+
+    // Active Users (People seen in the last 15 minutes)
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    const activeUsers = await Visitor.countDocuments({ 
+      date: today,
+      lastSeen: { $gte: fifteenMinutesAgo } 
+    });
 
     res.json({ 
       success: true, 

@@ -2,8 +2,46 @@ import express from 'express';
 import Series from '../models/Series.js';
 import Episode from '../models/Episode.js';
 import Analytics from '../models/Analytics.js';
+import Visitor from '../models/Visitor.js';
+import crypto from 'crypto';
 
 const router = express.Router();
+
+// @desc    Check-in unique visitor
+// @route   POST /api/series/check-in
+// @access  Public
+router.post('/check-in', async (req, res, next) => {
+  try {
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const ipHash = crypto.createHash('sha256').update(ip).digest('hex');
+    const today = new Date().toISOString().split('T')[0];
+
+    // Try to record a unique visit for today
+    try {
+      await Visitor.create({ ipHash, date: today });
+      
+      // If successful (new visitor today), increment total daily visitors in Analytics
+      let analytics = await Analytics.findOne({ date: today });
+      if (!analytics) {
+        analytics = await Analytics.create({ date: today });
+      }
+      analytics.visitors += 1;
+      await analytics.save();
+    } catch (err) {
+      // If E11000 duplicate key error, it means this IP already visited today
+      if (err.code === 11000) {
+        // Just update lastSeen for active user estimation
+        await Visitor.findOneAndUpdate({ ipHash, date: today }, { lastSeen: new Date() });
+      } else {
+        throw err;
+      }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // @desc    Get all series (with pagination & filters)
 // @route   GET /api/series
@@ -13,7 +51,6 @@ router.get('/', async (req, res, next) => {
     const { category, isPopular, isNewSeries, languageType, search, limit } = req.query;
     let query = {};
 
-    // For backwards compatibility with Category page using thai_dub / thai_sub in the category prop
     if (category && category !== 'all') {
       if (category === 'thai_dub' || category === 'thai_sub') {
         query.languageType = category;
@@ -23,7 +60,7 @@ router.get('/', async (req, res, next) => {
     if (languageType) query.languageType = languageType;
     if (isPopular) query.isPopular = isPopular === 'true';
     if (isNewSeries) query.isNewSeries = isNewSeries === 'true';
-    if (search) query.title = { $regex: search, $options: 'i' }; // Basic text search
+    if (search) query.title = { $regex: search, $options: 'i' };
 
     const limitNum = parseInt(limit, 10) || 24;
 
@@ -42,7 +79,7 @@ router.post('/view', async (req, res, next) => {
     const { seriesId, episodeId } = req.body;
     const today = new Date().toISOString().split('T')[0];
 
-    // Find or create today's analytics
+    // Find or create today's analytics record
     let analytics = await Analytics.findOne({ date: today });
     if (!analytics) {
       analytics = await Analytics.create({ date: today });
@@ -50,17 +87,14 @@ router.post('/view', async (req, res, next) => {
 
     if (seriesId) {
       await Series.findByIdAndUpdate(seriesId, { $inc: { views: 1 } });
-      analytics.seriesViews += 1;
     }
     
     if (episodeId) {
       await Episode.findByIdAndUpdate(episodeId, { $inc: { views: 1 } });
     }
 
+    // Record page view in analytics
     analytics.pageViews += 1;
-    // We assume each call is a distinct visitor action. Real systems use session IDs.
-    analytics.activeUsers += 1; 
-    
     await analytics.save();
 
     res.json({ success: true });
