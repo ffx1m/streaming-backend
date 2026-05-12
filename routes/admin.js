@@ -11,6 +11,37 @@ import { protectAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
+// @desc    Check current IP lockout status
+// @route   GET /api/admin/security/check-lockout
+// @access  Public
+router.get('/security/check-lockout', async (req, res, next) => {
+  try {
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const attemptRecord = await LoginAttempt.findOne({ ip });
+
+    if (!attemptRecord) {
+      return res.json({ success: true, locked: false });
+    }
+
+    if (attemptRecord.isBlacklisted) {
+      return res.json({ success: true, locked: true, permanent: true });
+    }
+
+    if (attemptRecord.lockUntil && attemptRecord.lockUntil > Date.now()) {
+      return res.json({ 
+        success: true, 
+        locked: true, 
+        lockUntil: attemptRecord.lockUntil,
+        remainingMs: attemptRecord.lockUntil - Date.now()
+      });
+    }
+
+    res.json({ success: true, locked: false });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // @desc    Admin Login
 // @route   POST /api/admin/login
 // @access  Public

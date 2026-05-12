@@ -44,15 +44,6 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// Strict Rate Limiting for Login
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 login requests per window (Safety net)
-  message: { success: false, message: 'Too many login attempts, please try again after 15 minutes.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
 // Moderate Rate Limiting for Analytics (Spam protection)
 const analyticsLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -75,7 +66,6 @@ if (process.env.NODE_ENV !== 'production') {
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // Mount routers
-app.use('/api/admin/login', loginLimiter); // Apply strict limit to login
 app.use('/api/series/view', analyticsLimiter); // Apply spam protection
 app.use('/api/series/check-in', analyticsLimiter); 
 
