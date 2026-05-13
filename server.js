@@ -1,9 +1,9 @@
 import express from 'express';
-import dotenv from 'dotenv';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
+import { env } from './config/env.js';
 import { connectDB } from './config/db.js';
 import { errorHandler, notFound } from './middleware/error.js';
 
@@ -11,19 +11,28 @@ import { errorHandler, notFound } from './middleware/error.js';
 import seriesRoutes from './routes/series.js';
 import adminRoutes from './routes/admin.js';
 
-dotenv.config();
+env.validate();
+env.logSummary();
 
 // Connect to Database
 connectDB();
 
 const app = express();
+app.set('trust proxy', env.trustProxy);
 
 // Security Middleware
 app.use(helmet());
 
 // Strict CORS Configuration
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin(origin, callback) {
+    if (!origin || env.corsOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
   optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
@@ -76,8 +85,6 @@ app.use('/api/admin', adminRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+app.listen(env.port, () => {
+  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${env.port}`);
 });

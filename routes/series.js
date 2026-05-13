@@ -3,16 +3,28 @@ import Series from '../models/Series.js';
 import Episode from '../models/Episode.js';
 import Analytics from '../models/Analytics.js';
 import Visitor from '../models/Visitor.js';
+import { getClientIp } from '../middleware/clientIp.js';
 import crypto from 'crypto';
 
 const router = express.Router();
+const DEFAULT_SERIES_LIMIT = 24;
+const MAX_SERIES_LIMIT = 1000;
+const MAX_SEARCH_LENGTH = 80;
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const getLimit = (value) => {
+  const parsed = parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_SERIES_LIMIT;
+  return Math.min(parsed, MAX_SERIES_LIMIT);
+};
 
 // @desc    Check-in unique visitor
 // @route   POST /api/series/check-in
 // @access  Public
 router.post('/check-in', async (req, res, next) => {
   try {
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const ip = getClientIp(req);
     const ipHash = crypto.createHash('sha256').update(ip).digest('hex');
     const today = new Date().toISOString().split('T')[0];
 
@@ -60,9 +72,13 @@ router.get('/', async (req, res, next) => {
     if (languageType) query.languageType = languageType;
     if (isPopular) query.isPopular = isPopular === 'true';
     if (isNewSeries) query.isNewSeries = isNewSeries === 'true';
-    if (search) query.title = { $regex: search, $options: 'i' };
 
-    const limitNum = parseInt(limit, 10) || 24;
+    const normalizedSearch = typeof search === 'string' ? search.trim().slice(0, MAX_SEARCH_LENGTH) : '';
+    if (normalizedSearch) {
+      query.title = { $regex: escapeRegex(normalizedSearch), $options: 'i' };
+    }
+
+    const limitNum = getLimit(limit);
 
     const series = await Series.find(query).sort({ createdAt: -1 }).limit(limitNum);
     res.json({ success: true, data: series });
@@ -87,6 +103,7 @@ router.post('/view', async (req, res, next) => {
 
     if (seriesId) {
       await Series.findByIdAndUpdate(seriesId, { $inc: { views: 1 } });
+      analytics.seriesViews += 1;
     }
     
     if (episodeId) {
