@@ -7,7 +7,7 @@ You will need to configure environment variables for both Backend and Frontend.
 ```env
 PORT=5000
 NODE_ENV=production
-MONGO_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/seriesapp?retryWrites=true&w=majority
+MONGO_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/vseries?retryWrites=true&w=majority
 JWT_SECRET=your_super_secret_key_at_least_32_characters
 CORS_ORIGINS=https://your-frontend-domain.vercel.app,https://www.yourdomain.com
 ADMIN_USERNAME=your_admin_username

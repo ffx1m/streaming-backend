@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      MONGO_URI: mongodb://localhost:27017/seriesapp_ci
+      MONGO_URI: mongodb://localhost:27017/vseries_ci
       JWT_SECRET: ci_jwt_secret_value_with_at_least_32_chars
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: ci_admin_password_123
