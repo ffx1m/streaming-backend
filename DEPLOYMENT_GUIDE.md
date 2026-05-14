@@ -30,6 +30,13 @@ Admin API requests from the browser are proxied through the frontend at `/api/ba
 ## 2. Pre-deployment Checklist
 Run these checks before deploying changes.
 
+**All checks from project root (recommended on Windows)**
+```bat
+.\predeploy.cmd
+```
+
+This runs the backend env check, backend tests, frontend env check, frontend lint, and frontend production build. Do not deploy if any step fails.
+
 **Backend**
 ```bash
 cd backend
@@ -47,14 +54,64 @@ npm run build
 
 If admin authentication or cookie settings changed, log out and log in again after deployment so the browser receives a fresh `admin_token` and `admin_csrf` pair.
 
-## 3. Database: MongoDB Atlas
+## 3. GitHub Actions CI
+Both repositories have CI workflows on `main`.
+
+**Backend CI**
+- Runs `npm ci`
+- Runs `npm run check:env`
+- Runs `npm test`
+
+**Frontend CI**
+- Runs `npm ci`
+- Runs `npm run check:env`
+- Runs `npm run lint`
+- Runs `npm run build`
+
+After pushing, check GitHub Actions before deploying. If either workflow is red, fix that repo before deploying.
+
+## 4. Deploy Flow
+1. Run `.\predeploy.cmd` from the project root.
+2. Commit and push the changed repo or repos.
+3. Confirm GitHub Actions are green.
+4. Deploy backend on Render if backend changed.
+5. Deploy frontend on Vercel if frontend changed.
+6. After deploy, run the smoke tests below.
+
+## 5. Production Smoke Tests
+After deployment, verify these paths on the production domain:
+
+- Frontend home page loads and shows series.
+- `/category/all` loads and shows series.
+- A sample `/series/<slug>` page loads.
+- A sample `/watch/<slug>/<episode>` page plays the video, including `.m3u8` HLS links.
+- Admin login works.
+- Admin create/edit episode can save `Video URL`.
+- Backend `/api/health` returns `{ "status": "ok" }`.
+
+## 6. Rollback Notes
+If a deploy is broken:
+
+**Frontend rollback**
+1. In Vercel, redeploy the last known good deployment, or revert the last frontend commit and push.
+2. Confirm GitHub Actions are green.
+3. Smoke test home, category, watch, and admin edit episode.
+
+**Backend rollback**
+1. In Render, redeploy the last known good backend deployment, or revert the last backend commit and push.
+2. Confirm GitHub Actions are green.
+3. Smoke test `/api/health`, public series API, admin login, and admin create/edit routes.
+
+Keep `url-series` separate. The main app should only store video URLs and play them; media encoding remains outside this deployment flow.
+
+## 7. Database: MongoDB Atlas
 1. Sign up/Log in to [MongoDB Atlas](https://www.mongodb.com/cloud/atlas).
 2. Create a new Cluster (Free tier is sufficient for starting).
 3. Under **Database Access**, create a user with a strong password.
 4. Under **Network Access**, add `0.0.0.0/0` to allow connections from anywhere (Render's IPs are dynamic).
 5. Get your Connection String and put it in your Backend's `MONGO_URI`.
 
-## 4. Backend Deployment: Render
+## 8. Backend Deployment: Render
 1. Create an account on [Render](https://render.com/).
 2. Click **New > Web Service**.
 3. Connect your GitHub repository containing this project.
@@ -68,7 +125,7 @@ If admin authentication or cookie settings changed, log out and log in again aft
 7. Deploy! Render will give you a URL like `https://your-backend-app.onrender.com`.
 8. Create or update the admin user from the backend directory with `npm run seed:admin`. This command does not clear series or episode data.
 
-## 5. Frontend Deployment: Vercel
+## 9. Frontend Deployment: Vercel
 1. Create an account on [Vercel](https://vercel.com/).
 2. Click **Add New Project**.
 3. Connect your GitHub repository.
@@ -77,7 +134,7 @@ If admin authentication or cookie settings changed, log out and log in again aft
 6. Before deploying locally, run `npm run check:env`, `npm run lint`, and `npm run build` from the `frontend` directory.
 7. Click **Deploy**. Vercel will give you a fast, CDN-cached domain.
 
-## 6. Security & Maintenance Recommendations
+## 10. Security & Maintenance Recommendations
 - **Rotate Secrets**: Regularly update your `JWT_SECRET`.
 - **Environment Validation**: The backend validates required production settings at startup. `MONGO_URI`, `JWT_SECRET`, and `CORS_ORIGINS` must be set, and production `JWT_SECRET` must be at least 32 characters.
 - **CORS Protection**: Ensure `CORS_ORIGINS` on the backend contains only trusted frontend URLs, separated by commas. Do not use `*` in production.
