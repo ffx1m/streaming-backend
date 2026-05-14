@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import Admin from '../models/Admin.js';
 import Series from '../models/Series.js';
 import Episode from '../models/Episode.js';
@@ -7,17 +8,19 @@ import Visitor from '../models/Visitor.js';
 import LoginAttempt from '../models/LoginAttempt.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { protectAdmin } from '../middleware/auth.js';
+import crypto from 'crypto';
+import { protectAdmin, requireAdminCsrf } from '../middleware/auth.js';
 import { getClientIp } from '../middleware/clientIp.js';
+import { getAnalyticsDateKey } from '../utils/dateKey.js';
 
 const router = express.Router();
 
-const getAdminCookieOptions = () => {
-  const sameSite = process.env.ADMIN_COOKIE_SAMESITE || (process.env.NODE_ENV === 'production' ? 'none' : 'lax');
+const getAdminCookieOptions = ({ httpOnly = true } = {}) => {
+  const sameSite = process.env.ADMIN_COOKIE_SAMESITE || 'lax';
   const secure = process.env.NODE_ENV === 'production' || sameSite.toLowerCase() === 'none';
 
   return {
-    httpOnly: true,
+    httpOnly,
     secure,
     sameSite,
     maxAge: 24 * 60 * 60 * 1000,
@@ -25,9 +28,9 @@ const getAdminCookieOptions = () => {
   };
 };
 
-const getClearAdminCookieOptions = () => {
-  const { maxAge, ...options } = getAdminCookieOptions();
-  return options;
+const getClearAdminCookieOptions = (options = {}) => {
+  const { maxAge, ...clearOptions } = getAdminCookieOptions(options);
+  return clearOptions;
 };
 
 const allowedLanguages = new Set(['thai_dub', 'thai_sub']);
@@ -46,6 +49,13 @@ const isValidUrl = (value) => {
 
 const badRequest = (res, message) => res.status(400).json({ success: false, message });
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+const validateParamObjectId = (res, value, label = 'ID') => {
+  if (isValidObjectId(value)) return true;
+
+  badRequest(res, `Invalid ${label}`);
+  return false;
+};
 
 const validateSeriesPayload = (body, { partial = false } = {}) => {
   const payload = {};
@@ -241,9 +251,15 @@ router.post('/login', async (req, res, next) => {
     }
 
     // Generate JWT
-    const token = jwt.sign({ id: adminUser._id, username: adminUser.username }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    const csrfToken = crypto.randomBytes(32).toString('hex');
+    const token = jwt.sign(
+      { id: adminUser._id, username: adminUser.username, csrfToken },
+      process.env.JWT_SECRET,
+      { expiresIn: '1d' }
+    );
     
     res.cookie('admin_token', token, getAdminCookieOptions());
+    res.cookie('admin_csrf', csrfToken, getAdminCookieOptions({ httpOnly: false }));
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -253,8 +269,9 @@ router.post('/login', async (req, res, next) => {
 // @desc    Admin Logout
 // @route   POST /api/admin/logout
 // @access  Public
-router.post('/logout', (req, res) => {
+router.post('/logout', protectAdmin, requireAdminCsrf, (req, res) => {
   res.clearCookie('admin_token', getClearAdminCookieOptions());
+  res.clearCookie('admin_csrf', getClearAdminCookieOptions({ httpOnly: false }));
   res.json({ success: true });
 });
 
@@ -284,8 +301,10 @@ router.get('/security/lockouts', protectAdmin, async (req, res, next) => {
 // @desc    Permanently blacklist an IP
 // @route   PUT /api/admin/security/blacklist/:id
 // @access  Private
-router.put('/security/blacklist/:id', protectAdmin, async (req, res, next) => {
+router.put('/security/blacklist/:id', protectAdmin, requireAdminCsrf, async (req, res, next) => {
   try {
+    if (!validateParamObjectId(res, req.params.id)) return;
+
     const record = await LoginAttempt.findByIdAndUpdate(req.params.id, {
       isBlacklisted: true,
       lockUntil: new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000) // 100 years lockout just in case
@@ -301,8 +320,10 @@ router.put('/security/blacklist/:id', protectAdmin, async (req, res, next) => {
 // @desc    Whitelist / Reset attempts for an IP
 // @route   DELETE /api/admin/security/lockouts/:id
 // @access  Private
-router.delete('/security/lockouts/:id', protectAdmin, async (req, res, next) => {
+router.delete('/security/lockouts/:id', protectAdmin, requireAdminCsrf, async (req, res, next) => {
   try {
+    if (!validateParamObjectId(res, req.params.id)) return;
+
     const record = await LoginAttempt.findByIdAndDelete(req.params.id);
     if (!record) return res.status(404).json({ success: false, message: 'Record not found' });
     res.json({ success: true, message: 'IP whitelisted / Record removed' });
@@ -326,7 +347,7 @@ router.get('/dashboard', protectAdmin, async (req, res, next) => {
     const totalViews = seriesAggregation.length > 0 ? seriesAggregation[0].totalViews : 0;
 
     // Accurate Unique Visitors for Today
-    const today = new Date().toISOString().split('T')[0];
+    const today = getAnalyticsDateKey();
     const dailyUsers = await Visitor.countDocuments({ date: today });
 
     // Active Users (People seen in the last 15 minutes)
@@ -370,7 +391,7 @@ router.get('/series', protectAdmin, async (req, res, next) => {
 // @desc    Create a series
 // @route   POST /api/admin/series
 // @access  Private
-router.post('/series', protectAdmin, async (req, res, next) => {
+router.post('/series', protectAdmin, requireAdminCsrf, async (req, res, next) => {
   try {
     const { payload, error } = validateSeriesPayload(req.body);
     if (error) return badRequest(res, error);
@@ -392,8 +413,10 @@ router.post('/series', protectAdmin, async (req, res, next) => {
 // @desc    Update a series
 // @route   PUT /api/admin/series/:id
 // @access  Private
-router.put('/series/:id', protectAdmin, async (req, res, next) => {
+router.put('/series/:id', protectAdmin, requireAdminCsrf, async (req, res, next) => {
   try {
+    if (!validateParamObjectId(res, req.params.id, 'series ID')) return;
+
     const { payload, error } = validateSeriesPayload(req.body, { partial: true });
     if (error) return badRequest(res, error);
 
@@ -423,8 +446,10 @@ router.put('/series/:id', protectAdmin, async (req, res, next) => {
 // @desc    Delete a series
 // @route   DELETE /api/admin/series/:id
 // @access  Private
-router.delete('/series/:id', protectAdmin, async (req, res, next) => {
+router.delete('/series/:id', protectAdmin, requireAdminCsrf, async (req, res, next) => {
   try {
+    if (!validateParamObjectId(res, req.params.id, 'series ID')) return;
+
     const series = await Series.findById(req.params.id);
     if (!series) return res.status(404).json({ success: false, message: 'Series not found' });
     
@@ -447,6 +472,8 @@ router.delete('/series/:id', protectAdmin, async (req, res, next) => {
 // @access  Private
 router.get('/episodes/:seriesId', protectAdmin, async (req, res, next) => {
   try {
+    if (!validateParamObjectId(res, req.params.seriesId, 'series ID')) return;
+
     const episodes = await Episode.find({ seriesId: req.params.seriesId }).sort({ episodeNumber: 1 });
     res.json({ success: true, data: episodes });
   } catch (error) {
@@ -457,7 +484,7 @@ router.get('/episodes/:seriesId', protectAdmin, async (req, res, next) => {
 // @desc    Create an episode
 // @route   POST /api/admin/episodes
 // @access  Private
-router.post('/episodes', protectAdmin, async (req, res, next) => {
+router.post('/episodes', protectAdmin, requireAdminCsrf, async (req, res, next) => {
   try {
     const { payload, error } = validateEpisodePayload(req.body);
     if (error) return badRequest(res, error);
@@ -488,8 +515,10 @@ router.post('/episodes', protectAdmin, async (req, res, next) => {
 // @desc    Update an episode
 // @route   PUT /api/admin/episodes/:id
 // @access  Private
-router.put('/episodes/:id', protectAdmin, async (req, res, next) => {
+router.put('/episodes/:id', protectAdmin, requireAdminCsrf, async (req, res, next) => {
   try {
+    if (!validateParamObjectId(res, req.params.id, 'episode ID')) return;
+
     const { payload, error } = validateEpisodePayload(req.body, { partial: true });
     if (error) return badRequest(res, error);
 
@@ -544,8 +573,10 @@ router.put('/episodes/:id', protectAdmin, async (req, res, next) => {
 // @desc    Delete an episode
 // @route   DELETE /api/admin/episodes/:id
 // @access  Private
-router.delete('/episodes/:id', protectAdmin, async (req, res, next) => {
+router.delete('/episodes/:id', protectAdmin, requireAdminCsrf, async (req, res, next) => {
   try {
+    if (!validateParamObjectId(res, req.params.id, 'episode ID')) return;
+
     const episode = await Episode.findById(req.params.id);
     if (!episode) return res.status(404).json({ success: false, message: 'Episode not found' });
     

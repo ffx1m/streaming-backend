@@ -1,9 +1,10 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import Series from '../models/Series.js';
 import Episode from '../models/Episode.js';
-import Analytics from '../models/Analytics.js';
-import Visitor from '../models/Visitor.js';
 import { getClientIp } from '../middleware/clientIp.js';
+import { recordDailyVisitor, recordSeriesView } from '../services/analytics.js';
+import { getAnalyticsDateKey } from '../utils/dateKey.js';
 import crypto from 'crypto';
 
 const router = express.Router();
@@ -12,6 +13,7 @@ const MAX_SERIES_LIMIT = 1000;
 const MAX_SEARCH_LENGTH = 80;
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const isValidObjectId = (value) => !value || mongoose.Types.ObjectId.isValid(value);
 
 const getLimit = (value) => {
   const parsed = parseInt(value, 10);
@@ -26,28 +28,9 @@ router.post('/check-in', async (req, res, next) => {
   try {
     const ip = getClientIp(req);
     const ipHash = crypto.createHash('sha256').update(ip).digest('hex');
-    const today = new Date().toISOString().split('T')[0];
+    const today = getAnalyticsDateKey();
 
-    // Try to record a unique visit for today
-    try {
-      await Visitor.create({ ipHash, date: today });
-      
-      // If successful (new visitor today), increment total daily visitors in Analytics
-      let analytics = await Analytics.findOne({ date: today });
-      if (!analytics) {
-        analytics = await Analytics.create({ date: today });
-      }
-      analytics.visitors += 1;
-      await analytics.save();
-    } catch (err) {
-      // If E11000 duplicate key error, it means this IP already visited today
-      if (err.code === 11000) {
-        // Just update lastSeen for active user estimation
-        await Visitor.findOneAndUpdate({ ipHash, date: today }, { lastSeen: new Date() });
-      } else {
-        throw err;
-      }
-    }
+    await recordDailyVisitor({ ipHash, date: today });
 
     res.json({ success: true });
   } catch (error) {
@@ -93,26 +76,13 @@ router.get('/', async (req, res, next) => {
 router.post('/view', async (req, res, next) => {
   try {
     const { seriesId, episodeId } = req.body;
-    const today = new Date().toISOString().split('T')[0];
-
-    // Find or create today's analytics record
-    let analytics = await Analytics.findOne({ date: today });
-    if (!analytics) {
-      analytics = await Analytics.create({ date: today });
+    if (!isValidObjectId(seriesId) || !isValidObjectId(episodeId)) {
+      return res.status(400).json({ success: false, message: 'Invalid series or episode ID' });
     }
 
-    if (seriesId) {
-      await Series.findByIdAndUpdate(seriesId, { $inc: { views: 1 } });
-      analytics.seriesViews += 1;
-    }
-    
-    if (episodeId) {
-      await Episode.findByIdAndUpdate(episodeId, { $inc: { views: 1 } });
-    }
+    const today = getAnalyticsDateKey();
 
-    // Record page view in analytics
-    analytics.pageViews += 1;
-    await analytics.save();
+    await recordSeriesView({ date: today, seriesId, episodeId });
 
     res.json({ success: true });
   } catch (error) {

@@ -50,6 +50,7 @@ console.log({
   adminPasswordLength: process.env.ADMIN_PASSWORD?.length || 0,
   corsOrigins: env.corsOrigins,
   trustProxy: env.trustProxy,
+  analyticsTimeZone: env.analyticsTimeZone,
 });
 
 for (const warning of warnings) {

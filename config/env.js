@@ -1,8 +1,9 @@
 import dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const isProduction = process.env.NODE_ENV === 'production';
+const defaultAnalyticsTimeZone = 'Asia/Bangkok';
 
 const getCorsOrigins = () => {
   return (process.env.CORS_ORIGINS || process.env.CORS_ORIGIN || (isProduction ? '' : 'http://localhost:3000'))
@@ -14,6 +15,17 @@ const getCorsOrigins = () => {
 const getTrustProxy = () => {
   const value = process.env.TRUST_PROXY || (isProduction ? '1' : 'false');
   return value === 'false' ? false : Number(value) || value;
+};
+
+const getAnalyticsTimeZone = () => process.env.ANALYTICS_TIME_ZONE || defaultAnalyticsTimeZone;
+
+const isValidTimeZone = (timeZone) => {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const validateEnv = () => {
@@ -38,6 +50,10 @@ const validateEnv = () => {
     errors.push('ADMIN_COOKIE_SAMESITE=none requires NODE_ENV=production so cookies are Secure');
   }
 
+  if (!isValidTimeZone(getAnalyticsTimeZone())) {
+    errors.push('ANALYTICS_TIME_ZONE must be a valid IANA time zone');
+  }
+
   if (errors.length > 0) {
     throw new Error(`Invalid environment configuration:\n- ${errors.join('\n- ')}`);
   }
@@ -50,7 +66,8 @@ const logEnvSummary = () => {
     nodeEnv: process.env.NODE_ENV || 'development',
     corsOrigins,
     trustProxy: getTrustProxy(),
-    adminCookieSameSite: process.env.ADMIN_COOKIE_SAMESITE || (isProduction ? 'none' : 'lax'),
+    adminCookieSameSite: process.env.ADMIN_COOKIE_SAMESITE || 'lax',
+    analyticsTimeZone: getAnalyticsTimeZone(),
   });
 };
 
@@ -60,6 +77,7 @@ export const env = {
   mongoUri: process.env.MONGO_URI,
   corsOrigins: getCorsOrigins(),
   trustProxy: getTrustProxy(),
+  analyticsTimeZone: getAnalyticsTimeZone(),
   validate: validateEnv,
   logSummary: logEnvSummary,
 };
