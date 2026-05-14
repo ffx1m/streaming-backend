@@ -78,6 +78,9 @@ export const env = {
   corsOrigins: getCorsOrigins(),
   trustProxy: getTrustProxy(),
   analyticsTimeZone: getAnalyticsTimeZone(),
+  mediaWorkerOrigin: process.env.MEDIA_WORKER_ORIGIN,
+  mediaSigningSecret: process.env.MEDIA_SIGNING_SECRET,
+  mediaSignedUrlTtl: parseInt(process.env.MEDIA_SIGNED_URL_TTL_SECONDS || '1800', 10),
   validate: validateEnv,
   logSummary: logEnvSummary,
 };

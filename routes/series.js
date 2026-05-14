@@ -5,6 +5,7 @@ import Episode from '../models/Episode.js';
 import { getClientIp } from '../middleware/clientIp.js';
 import { recordDailyVisitor, recordSeriesView } from '../services/analytics.js';
 import { getAnalyticsDateKey } from '../utils/dateKey.js';
+import { signWorkerUrl } from '../utils/urlSigner.js';
 import crypto from 'crypto';
 
 const router = express.Router();
@@ -101,7 +102,10 @@ router.get('/:slug', async (req, res, next) => {
     }
 
     const episodes = await Episode.find({ seriesId: series._id }).sort({ episodeNumber: 1 }).lean();
-    series.episodes = episodes;
+    series.episodes = episodes.map(ep => ({
+      ...ep,
+      videoUrl: signWorkerUrl(ep.videoUrl)
+    }));
 
     res.json({ success: true, data: series });
   } catch (error) {
