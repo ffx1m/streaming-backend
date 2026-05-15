@@ -23,9 +23,13 @@ const withTestServer = async (callback) => {
   }
 };
 
-const createQueryChain = ({ onSort, onLimit, onLean, result }) => ({
+const createQueryChain = ({ onSort, onSkip, onLimit, onLean, result }) => ({
   sort(sortSpec) {
     onSort?.(sortSpec);
+    return this;
+  },
+  skip(skipValue) {
+    onSkip?.(skipValue);
     return this;
   },
   limit(limitValue) {
@@ -46,6 +50,7 @@ const withMockedSeriesModels = async (callback, options = {}) => {
     seriesFind: Series.find,
     seriesFindByIdAndUpdate: Series.findByIdAndUpdate,
     seriesFindOne: Series.findOne,
+    seriesCountDocuments: Series.countDocuments,
   };
   const calls = [];
 
@@ -53,9 +58,14 @@ const withMockedSeriesModels = async (callback, options = {}) => {
     calls.push(['series.find', query]);
     return createQueryChain({
       onSort: (sortSpec) => calls.push(['series.sort', sortSpec]),
+      onSkip: (skipValue) => calls.push(['series.skip', skipValue]),
       onLimit: (limitValue) => calls.push(['series.limit', limitValue]),
       result: options.seriesList ?? [{ _id: 'series-1', title: 'Series 1' }],
     });
+  };
+  Series.countDocuments = async (query) => {
+    calls.push(['series.countDocuments', query]);
+    return options.seriesTotal ?? (options.seriesList ?? [{ _id: 'series-1', title: 'Series 1' }]).length;
   };
 
   Series.findOne = (query) => {
@@ -92,6 +102,7 @@ const withMockedSeriesModels = async (callback, options = {}) => {
     Series.find = originalMethods.seriesFind;
     Series.findByIdAndUpdate = originalMethods.seriesFindByIdAndUpdate;
     Series.findOne = originalMethods.seriesFindOne;
+    Series.countDocuments = originalMethods.seriesCountDocuments;
   }
 };
 
@@ -104,7 +115,18 @@ test('GET /api/series escapes search regex and applies filters', async () => {
       const body = await response.json();
 
       assert.equal(response.status, 200);
-      assert.deepEqual(body, { success: true, data: [{ _id: 'series-1', title: 'Series 1' }] });
+      assert.deepEqual(body, {
+        success: true,
+        data: [{ _id: 'series-1', title: 'Series 1' }],
+        pagination: {
+          page: 1,
+          limit: 24,
+          total: 1,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      });
       assert.deepEqual(calls[0], [
         'series.find',
         {
@@ -115,6 +137,28 @@ test('GET /api/series escapes search regex and applies filters', async () => {
       ]);
     });
   });
+});
+
+test('GET /api/series applies page offset and returns pagination metadata', async () => {
+  await withMockedSeriesModels(async (calls) => {
+    await withTestServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/series?page=3&limit=10`);
+      const body = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(calls.find((call) => call[0] === 'series.skip'), ['series.skip', 20]);
+      assert.deepEqual(calls.find((call) => call[0] === 'series.limit'), ['series.limit', 10]);
+      assert.deepEqual(calls.find((call) => call[0] === 'series.countDocuments'), ['series.countDocuments', {}]);
+      assert.deepEqual(body.pagination, {
+        page: 3,
+        limit: 10,
+        total: 35,
+        totalPages: 4,
+        hasNextPage: true,
+        hasPreviousPage: true,
+      });
+    });
+  }, { seriesTotal: 35 });
 });
 
 test('GET /api/series clamps excessive limits to the maximum', async () => {

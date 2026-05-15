@@ -22,6 +22,12 @@ const getLimit = (value) => {
   return Math.min(parsed, MAX_SERIES_LIMIT);
 };
 
+const getPage = (value) => {
+  const parsed = parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+  return parsed;
+};
+
 // @desc    Check-in unique visitor
 // @route   POST /api/series/check-in
 // @access  Public
@@ -44,7 +50,7 @@ router.post('/check-in', async (req, res, next) => {
 // @access  Public
 router.get('/', async (req, res, next) => {
   try {
-    const { category, isPopular, isNewSeries, languageType, search, limit } = req.query;
+    const { category, isPopular, isNewSeries, languageType, search, limit, page } = req.query;
     let query = {};
 
     if (category && category !== 'all') {
@@ -63,9 +69,27 @@ router.get('/', async (req, res, next) => {
     }
 
     const limitNum = getLimit(limit);
+    const pageNum = getPage(page);
+    const skip = (pageNum - 1) * limitNum;
 
-    const series = await Series.find(query).sort({ createdAt: -1 }).limit(limitNum);
-    res.json({ success: true, data: series });
+    const [series, total] = await Promise.all([
+      Series.find(query).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+      Series.countDocuments(query),
+    ]);
+    const totalPages = Math.ceil(total / limitNum);
+
+    res.json({
+      success: true,
+      data: series,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages,
+        hasNextPage: pageNum < totalPages,
+        hasPreviousPage: pageNum > 1,
+      },
+    });
   } catch (error) {
     next(error);
   }
