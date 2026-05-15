@@ -34,11 +34,14 @@ const createQueryChain = ({ onSort, onSkip, onLimit, onLean, result }) => ({
   },
   limit(limitValue) {
     onLimit?.(limitValue);
-    return Promise.resolve(result);
+    return this;
   },
   lean() {
     onLean?.();
     return Promise.resolve(result);
+  },
+  then(resolve, reject) {
+    return Promise.resolve(result).then(resolve, reject);
   },
 });
 
@@ -46,6 +49,7 @@ const withMockedSeriesModels = async (callback, options = {}) => {
   const originalMethods = {
     analyticsFindOneAndUpdate: Analytics.findOneAndUpdate,
     episodeFind: Episode.find,
+    episodeCountDocuments: Episode.countDocuments,
     episodeFindByIdAndUpdate: Episode.findByIdAndUpdate,
     seriesFind: Series.find,
     seriesFindByIdAndUpdate: Series.findByIdAndUpdate,
@@ -60,17 +64,20 @@ const withMockedSeriesModels = async (callback, options = {}) => {
       onSort: (sortSpec) => calls.push(['series.sort', sortSpec]),
       onSkip: (skipValue) => calls.push(['series.skip', skipValue]),
       onLimit: (limitValue) => calls.push(['series.limit', limitValue]),
-      result: options.seriesList ?? [{ _id: 'series-1', title: 'Series 1' }],
+      result: options.seriesList ?? [{ _id: '507f1f77bcf86cd799439011', title: 'Series 1' }],
     });
   };
   Series.countDocuments = async (query) => {
     calls.push(['series.countDocuments', query]);
-    return options.seriesTotal ?? (options.seriesList ?? [{ _id: 'series-1', title: 'Series 1' }]).length;
+    return options.seriesTotal ?? (options.seriesList ?? [{ _id: '507f1f77bcf86cd799439011', title: 'Series 1' }]).length;
   };
 
   Series.findOne = (query) => {
     calls.push(['series.findOne', query]);
     return {
+      select: () => ({
+        lean: async () => options.seriesDetail ?? null,
+      }),
       lean: async () => options.seriesDetail ?? null,
     };
   };
@@ -82,6 +89,10 @@ const withMockedSeriesModels = async (callback, options = {}) => {
       onLean: () => calls.push(['episode.lean']),
       result: options.episodes ?? [],
     });
+  };
+  Episode.countDocuments = async (query) => {
+    calls.push(['episode.countDocuments', query]);
+    return options.episodes?.length ?? 0;
   };
   Series.findByIdAndUpdate = async (id, update) => {
     calls.push(['series.findByIdAndUpdate', id, update]);
@@ -98,6 +109,7 @@ const withMockedSeriesModels = async (callback, options = {}) => {
   } finally {
     Analytics.findOneAndUpdate = originalMethods.analyticsFindOneAndUpdate;
     Episode.find = originalMethods.episodeFind;
+    Episode.countDocuments = originalMethods.episodeCountDocuments;
     Episode.findByIdAndUpdate = originalMethods.episodeFindByIdAndUpdate;
     Series.find = originalMethods.seriesFind;
     Series.findByIdAndUpdate = originalMethods.seriesFindByIdAndUpdate;
@@ -115,10 +127,10 @@ test('GET /api/series escapes search regex and applies filters', async () => {
       const body = await response.json();
 
       assert.equal(response.status, 200);
-      assert.equal(response.headers.get('cache-control'), 'public, max-age=30, stale-while-revalidate=120');
+      assert.equal(response.headers.get('cache-control'), 'public, max-age=60, stale-while-revalidate=300');
       assert.deepEqual(body, {
         success: true,
-        data: [{ _id: 'series-1', title: 'Series 1' }],
+        data: [{ _id: '507f1f77bcf86cd799439011', title: 'Series 1' }],
         pagination: {
           page: 1,
           limit: 24,
@@ -147,13 +159,13 @@ test('GET /api/series/home returns home sections in one response', async () => {
       const body = await response.json();
 
       assert.equal(response.status, 200);
-      assert.equal(response.headers.get('cache-control'), 'public, max-age=120, stale-while-revalidate=600');
+      assert.equal(response.headers.get('cache-control'), 'public, max-age=300, stale-while-revalidate=1200');
       assert.deepEqual(body, {
         success: true,
         data: {
-          popular: [{ _id: 'series-1', title: 'Series 1' }],
-          newSeries: [{ _id: 'series-1', title: 'Series 1' }],
-          latest: [{ _id: 'series-1', title: 'Series 1' }],
+          popular: [{ _id: '507f1f77bcf86cd799439011', title: 'Series 1' }],
+          newSeries: [{ _id: '507f1f77bcf86cd799439011', title: 'Series 1' }],
+          latest: [{ _id: '507f1f77bcf86cd799439011', title: 'Series 1' }],
         },
       });
       assert.deepEqual(calls.filter((call) => call[0] === 'series.find'), [
@@ -214,16 +226,12 @@ test('GET /api/series uses the default limit for invalid limits', async () => {
   });
 });
 
-test('GET /api/series/:slug returns a series with sorted episodes', async () => {
+test('GET /api/series/:slug returns a series without episodes', async () => {
   const seriesDetail = {
-    _id: 'series-1',
+    _id: '507f1f77bcf86cd799439011',
     slug: 'test-series',
     title: 'Test Series',
   };
-  const episodes = [
-    { _id: 'episode-1', episodeNumber: 1 },
-    { _id: 'episode-2', episodeNumber: 2 },
-  ];
 
   await withMockedSeriesModels(async (calls) => {
     await withTestServer(async (baseUrl) => {
@@ -231,19 +239,35 @@ test('GET /api/series/:slug returns a series with sorted episodes', async () => 
       const body = await response.json();
 
       assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'public, max-age=300, stale-while-revalidate=1800');
       assert.deepEqual(body, {
         success: true,
-        data: {
-          ...seriesDetail,
-          episodes,
-        },
+        data: seriesDetail,
       });
       assert.deepEqual(calls, [
         ['series.findOne', { slug: 'test-series' }],
-        ['episode.find', { seriesId: 'series-1' }],
-        ['episode.sort', { episodeNumber: 1 }],
-        ['episode.lean'],
       ]);
+    });
+  }, { seriesDetail });
+});
+
+test('GET /api/series/:slug/episodes returns paginated episodes', async () => {
+  const seriesDetail = { _id: '507f1f77bcf86cd799439011' };
+  const episodes = [
+    { _id: 'episode-1', episodeNumber: 1, videoUrl: 'https://series.film01-thirx.workers.dev/video1.m3u8' },
+    { _id: 'episode-2', episodeNumber: 2, videoUrl: 'https://series.film01-thirx.workers.dev/video2.m3u8' },
+  ];
+
+  await withMockedSeriesModels(async (calls) => {
+    await withTestServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/series/test-series/episodes`);
+      const body = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'public, max-age=600, stale-while-revalidate=3600');
+      assert.equal(body.success, true);
+      assert.equal(body.data.length, 2);
+      assert.ok(body.data[0].videoUrl.includes('sig='));
     });
   }, { seriesDetail, episodes });
 });

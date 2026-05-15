@@ -29,6 +29,8 @@ export const createApp = ({ enableRequestLogging = process.env.NODE_ENV !== 'pro
   };
   app.use(cors(corsOptions));
 
+  app.use(express.json());
+
   app.use((req, res, next) => {
     if (req.body) mongoSanitize.sanitize(req.body);
     if (req.query) mongoSanitize.sanitize(req.query);
@@ -40,6 +42,7 @@ export const createApp = ({ enableRequestLogging = process.env.NODE_ENV !== 'pro
     windowMs: 15 * 60 * 1000,
     max: process.env.NODE_ENV === 'production' ? 100 : 5000,
     message: { success: false, message: 'Too many requests, please try again later.' },
+    validate: { trustProxy: false },
   });
   app.use('/api/', limiter);
 
@@ -47,9 +50,8 @@ export const createApp = ({ enableRequestLogging = process.env.NODE_ENV !== 'pro
     windowMs: 15 * 60 * 1000,
     max: 20,
     message: { success: false, message: 'Too many interactions, please slow down.' },
+    validate: { trustProxy: false },
   });
-
-  app.use(express.json());
 
   if (enableRequestLogging) {
     app.use((req, res, next) => {

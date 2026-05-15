@@ -14,7 +14,9 @@ const getCorsOrigins = () => {
 
 const getTrustProxy = () => {
   const value = process.env.TRUST_PROXY || (isProduction ? '1' : 'false');
-  return value === 'false' ? false : Number(value) || value;
+  if (value === 'false') return false;
+  if (value === 'true') return true;
+  return Number(value) || value;
 };
 
 const getAnalyticsTimeZone = () => process.env.ANALYTICS_TIME_ZONE || defaultAnalyticsTimeZone;
