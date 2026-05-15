@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
 import { env } from './config/env.js';
@@ -13,6 +14,7 @@ export const createApp = ({ enableRequestLogging = process.env.NODE_ENV !== 'pro
   app.set('trust proxy', env.trustProxy);
 
   app.use(helmet());
+  app.use(compression());
 
   const corsOptions = {
     origin(origin, callback) {
