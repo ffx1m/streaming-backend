@@ -115,6 +115,7 @@ test('GET /api/series escapes search regex and applies filters', async () => {
       const body = await response.json();
 
       assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'public, max-age=30, stale-while-revalidate=120');
       assert.deepEqual(body, {
         success: true,
         data: [{ _id: 'series-1', title: 'Series 1' }],
@@ -134,6 +135,36 @@ test('GET /api/series escapes search regex and applies filters', async () => {
           isPopular: true,
           title: { $regex: 'a\\.b\\[test\\]', $options: 'i' },
         },
+      ]);
+    });
+  });
+});
+
+test('GET /api/series/home returns home sections in one response', async () => {
+  await withMockedSeriesModels(async (calls) => {
+    await withTestServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/series/home`);
+      const body = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'public, max-age=120, stale-while-revalidate=600');
+      assert.deepEqual(body, {
+        success: true,
+        data: {
+          popular: [{ _id: 'series-1', title: 'Series 1' }],
+          newSeries: [{ _id: 'series-1', title: 'Series 1' }],
+          latest: [{ _id: 'series-1', title: 'Series 1' }],
+        },
+      });
+      assert.deepEqual(calls.filter((call) => call[0] === 'series.find'), [
+        ['series.find', { isPopular: true }],
+        ['series.find', { isNewSeries: true }],
+        ['series.find', {}],
+      ]);
+      assert.deepEqual(calls.filter((call) => call[0] === 'series.limit'), [
+        ['series.limit', 12],
+        ['series.limit', 12],
+        ['series.limit', 12],
       ]);
     });
   });

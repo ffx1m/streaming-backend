@@ -12,9 +12,14 @@ const router = express.Router();
 const DEFAULT_SERIES_LIMIT = 24;
 const MAX_SERIES_LIMIT = 1000;
 const MAX_SEARCH_LENGTH = 80;
+const HOME_SECTION_LIMIT = 12;
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const isValidObjectId = (value) => !value || mongoose.Types.ObjectId.isValid(value);
+
+const setPublicCache = (res, { maxAge = 60, staleWhileRevalidate = 300 } = {}) => {
+  res.set('Cache-Control', `public, max-age=${maxAge}, stale-while-revalidate=${staleWhileRevalidate}`);
+};
 
 const getLimit = (value) => {
   const parsed = parseInt(value, 10);
@@ -40,6 +45,31 @@ router.post('/check-in', async (req, res, next) => {
     await recordDailyVisitor({ ipHash, date: today });
 
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// @desc    Get home page series sections in one request
+// @route   GET /api/series/home
+// @access  Public
+router.get('/home', async (req, res, next) => {
+  try {
+    const [popular, newSeries, latest] = await Promise.all([
+      Series.find({ isPopular: true }).sort({ createdAt: -1 }).limit(HOME_SECTION_LIMIT),
+      Series.find({ isNewSeries: true }).sort({ createdAt: -1 }).limit(HOME_SECTION_LIMIT),
+      Series.find({}).sort({ createdAt: -1 }).limit(HOME_SECTION_LIMIT),
+    ]);
+
+    setPublicCache(res, { maxAge: 120, staleWhileRevalidate: 600 });
+    res.json({
+      success: true,
+      data: {
+        popular,
+        newSeries,
+        latest,
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -78,6 +108,10 @@ router.get('/', async (req, res, next) => {
     ]);
     const totalPages = Math.ceil(total / limitNum);
 
+    setPublicCache(res, {
+      maxAge: normalizedSearch ? 30 : 60,
+      staleWhileRevalidate: normalizedSearch ? 120 : 300,
+    });
     res.json({
       success: true,
       data: series,
@@ -131,6 +165,7 @@ router.get('/:slug', async (req, res, next) => {
       videoUrl: signWorkerUrl(ep.videoUrl)
     }));
 
+    setPublicCache(res, { maxAge: 300, staleWhileRevalidate: 1800 });
     res.json({ success: true, data: series });
   } catch (error) {
     next(error);

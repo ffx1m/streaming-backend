@@ -15,5 +15,9 @@ const seriesSchema = new mongoose.Schema({
 // Optimize search and lookups
 seriesSchema.index({ slug: 1 });
 seriesSchema.index({ title: 'text' });
+seriesSchema.index({ createdAt: -1 });
+seriesSchema.index({ isPopular: 1, createdAt: -1 });
+seriesSchema.index({ isNewSeries: 1, createdAt: -1 });
+seriesSchema.index({ languageType: 1, createdAt: -1 });
 
 export default mongoose.model('Series', seriesSchema);
