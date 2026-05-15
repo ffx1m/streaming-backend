@@ -1,5 +1,5 @@
 export const errorHandler = (err, req, res, next) => {
-  console.error(err.stack);
+  console.error(`[Error] ${req.method} ${req.path}:`, err.stack);
   const statusCode = err.statusCode || 500;
   const isServerError = statusCode >= 500;
   const message = process.env.NODE_ENV === 'production' && isServerError
