@@ -161,14 +161,54 @@ router.get('/:slug', async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Series not found' });
     }
 
-    const episodes = await Episode.find({ seriesId: series._id }).sort({ episodeNumber: 1 }).lean();
-    series.episodes = episodes.map(ep => ({
+    setPublicCache(res, { maxAge: 300, staleWhileRevalidate: 1800 });
+    res.json({ success: true, data: series });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// @desc    Get series episodes (paginated)
+// @route   GET /api/series/:slug/episodes
+// @access  Public
+router.get('/:slug/episodes', async (req, res, next) => {
+  try {
+    const { page, limit } = req.query;
+    const series = await Series.findOne({ slug: req.params.slug }).select('_id').lean();
+    
+    if (!series) {
+      return res.status(404).json({ success: false, message: 'Series not found' });
+    }
+
+    const limitNum = getLimit(limit || 50);
+    const pageNum = getPage(page);
+    const skip = (pageNum - 1) * limitNum;
+
+    const [episodes, total] = await Promise.all([
+      Episode.find({ seriesId: series._id }).sort({ episodeNumber: 1 }).skip(skip).limit(limitNum).lean(),
+      Episode.countDocuments({ seriesId: series._id }),
+    ]);
+
+    const signedEpisodes = episodes.map(ep => ({
       ...ep,
       videoUrl: signWorkerUrl(ep.videoUrl)
     }));
 
-    setPublicCache(res, { maxAge: 300, staleWhileRevalidate: 1800 });
-    res.json({ success: true, data: series });
+    const totalPages = Math.ceil(total / limitNum);
+
+    setPublicCache(res, { maxAge: 600, staleWhileRevalidate: 3600 });
+    res.json({
+      success: true,
+      data: signedEpisodes,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages,
+        hasNextPage: pageNum < totalPages,
+        hasPreviousPage: pageNum > 1,
+      },
+    });
   } catch (error) {
     next(error);
   }
