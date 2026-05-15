@@ -55,7 +55,7 @@ router.post('/check-in', async (req, res, next) => {
 // @access  Public
 router.get('/home', async (req, res, next) => {
   try {
-    const projection = 'title slug posterUrl languageType totalEpisodes views isPopular isNewSeries';
+    const projection = 'title slug posterUrl languageType totalEpisodes views isPopular isNewSeries createdAt updatedAt';
     const [popular, newSeries, latest] = await Promise.all([
       Series.find({ isPopular: true }, projection).sort({ createdAt: -1 }).limit(HOME_SECTION_LIMIT),
       Series.find({ isNewSeries: true }, projection).sort({ createdAt: -1 }).limit(HOME_SECTION_LIMIT),
@@ -103,7 +103,7 @@ router.get('/', async (req, res, next) => {
     const pageNum = getPage(page);
     const skip = (pageNum - 1) * limitNum;
 
-    const projection = 'title slug posterUrl languageType totalEpisodes views isPopular isNewSeries';
+    const projection = 'title slug posterUrl languageType totalEpisodes views isPopular isNewSeries createdAt updatedAt';
     const [series, total] = await Promise.all([
       Series.find(query, projection).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
       Series.countDocuments(query),
