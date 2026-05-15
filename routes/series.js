@@ -55,13 +55,14 @@ router.post('/check-in', async (req, res, next) => {
 // @access  Public
 router.get('/home', async (req, res, next) => {
   try {
+    const projection = 'title slug posterUrl languageType totalEpisodes views isPopular isNewSeries';
     const [popular, newSeries, latest] = await Promise.all([
-      Series.find({ isPopular: true }).sort({ createdAt: -1 }).limit(HOME_SECTION_LIMIT),
-      Series.find({ isNewSeries: true }).sort({ createdAt: -1 }).limit(HOME_SECTION_LIMIT),
-      Series.find({}).sort({ createdAt: -1 }).limit(HOME_SECTION_LIMIT),
+      Series.find({ isPopular: true }, projection).sort({ createdAt: -1 }).limit(HOME_SECTION_LIMIT),
+      Series.find({ isNewSeries: true }, projection).sort({ createdAt: -1 }).limit(HOME_SECTION_LIMIT),
+      Series.find({}, projection).sort({ createdAt: -1 }).limit(HOME_SECTION_LIMIT),
     ]);
 
-    setPublicCache(res, { maxAge: 120, staleWhileRevalidate: 600 });
+    setPublicCache(res, { maxAge: 300, staleWhileRevalidate: 1200 });
     res.json({
       success: true,
       data: {
@@ -102,15 +103,16 @@ router.get('/', async (req, res, next) => {
     const pageNum = getPage(page);
     const skip = (pageNum - 1) * limitNum;
 
+    const projection = 'title slug posterUrl languageType totalEpisodes views isPopular isNewSeries';
     const [series, total] = await Promise.all([
-      Series.find(query).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+      Series.find(query, projection).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
       Series.countDocuments(query),
     ]);
     const totalPages = Math.ceil(total / limitNum);
 
     setPublicCache(res, {
-      maxAge: normalizedSearch ? 30 : 60,
-      staleWhileRevalidate: normalizedSearch ? 120 : 300,
+      maxAge: normalizedSearch ? 60 : 300,
+      staleWhileRevalidate: normalizedSearch ? 300 : 1200,
     });
     res.json({
       success: true,
