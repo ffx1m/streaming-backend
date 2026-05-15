@@ -214,4 +214,55 @@ router.get('/:slug/episodes', async (req, res, next) => {
   }
 });
 
+// @desc    Get data for watch page (series + current/next episode)
+// @route   GET /api/series/:slug/watch/:episodeNumber
+// @access  Public
+router.get('/:slug/watch/:episodeNumber', async (req, res, next) => {
+  try {
+    const { slug, episodeNumber } = req.params;
+    const epNum = parseInt(episodeNumber, 10);
+
+    const series = await Series.findOne({ slug }).lean();
+    if (!series) {
+      return res.status(404).json({ success: false, message: 'Series not found' });
+    }
+
+    const [currentEpisode, nextEpisode] = await Promise.all([
+      Episode.findOne({ seriesId: series._id, episodeNumber: epNum }).lean(),
+      Episode.findOne({ seriesId: series._id, episodeNumber: epNum + 1 }).lean(),
+    ]);
+
+    if (!currentEpisode) {
+      return res.json({
+        success: true,
+        data: {
+          seriesId: series._id,
+          title: series.title,
+          slug: series.slug,
+          posterUrl: series.posterUrl,
+          totalEpisodes: series.totalEpisodes,
+          hasCurrentEpisode: false,
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        seriesId: series._id,
+        title: series.title,
+        slug: series.slug,
+        posterUrl: series.posterUrl,
+        totalEpisodes: series.totalEpisodes,
+        currentEpisodeId: currentEpisode._id,
+        currentEpisodeUrl: signWorkerUrl(currentEpisode.videoUrl),
+        nextEpisodeUrl: nextEpisode ? signWorkerUrl(nextEpisode.videoUrl) : '',
+        hasCurrentEpisode: true,
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;
