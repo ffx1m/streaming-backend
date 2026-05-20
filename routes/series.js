@@ -39,7 +39,8 @@ const getPage = (value) => {
 router.post('/check-in', async (req, res, next) => {
   try {
     const ip = getClientIp(req);
-    const ipHash = crypto.createHash('sha256').update(ip).digest('hex');
+    const salt = process.env.IP_HASH_SALT || 'default_fallback_salt_change_in_production';
+    const ipHash = crypto.createHash('sha256').update(ip + salt).digest('hex');
     const today = getAnalyticsDateKey();
 
     await recordDailyVisitor({ ipHash, date: today });
